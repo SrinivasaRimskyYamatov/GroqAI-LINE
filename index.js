@@ -1,5 +1,9 @@
 require("dotenv").config();
+require("dotenv").config();
 
+console.log("GROQ:", !!process.env.GROQ_API_KEY);
+console.log("TOKEN:", !!process.env.LINE_CHANNEL_ACCESS_TOKEN);
+console.log("SECRET:", !!process.env.LINE_CHANNEL_SECRET);
 const express = require("express");
 const line = require("@line/bot-sdk");
 const Groq = require("groq-sdk");
