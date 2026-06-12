@@ -1,9 +1,5 @@
 require("dotenv").config();
 
-console.log("GROQ:", !!process.env.GROQ_API_KEY);
-console.log("TOKEN:", !!process.env.LINE_CHANNEL_ACCESS_TOKEN);
-console.log("SECRET:", !!process.env.LINE_CHANNEL_SECRET);
-
 const express = require("express");
 const line = require("@line/bot-sdk");
 const Groq = require("groq-sdk");
@@ -11,7 +7,14 @@ const Groq = require("groq-sdk");
 const app = express();
 
 /*
-  LINE設定
+  ===== 環境変数チェック =====
+*/
+console.log("GROQ:", !!process.env.GROQ_API_KEY);
+console.log("TOKEN:", !!process.env.LINE_CHANNEL_ACCESS_TOKEN);
+console.log("SECRET:", !!process.env.LINE_CHANNEL_SECRET);
+
+/*
+  ===== LINE設定 =====
 */
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -19,105 +22,107 @@ const config = {
 };
 
 /*
-  LINE Client（ここが修正ポイント）
+  ===== LINE Client（v7安定版） =====
 */
 const client = new line.Client(config);
 
 /*
-  Groq
+  ===== Groq =====
 */
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY
 });
 
 /*
-  Webhook
+  ===== Webhook =====
 */
 app.post("/webhook", line.middleware(config), async (req, res) => {
   try {
     const events = req.body.events || [];
 
-    for (const event of events) {
-      if (
-        event.type !== "message" ||
-        event.message.type !== "text"
-      ) continue;
+    await Promise.all(
+      events.map(async (event) => {
+        if (
+          event.type !== "message" ||
+          event.message.type !== "text"
+        ) return;
 
-      const text = event.message.text.trim();
+        const text = event.message.text.trim();
 
-      if (!text.startsWith("!ai")) continue;
+        if (!text.startsWith("!ai")) return;
 
-      const prompt = text.replace(/^!ai\s*/, "");
+        const prompt = text.replace(/^!ai\s*/, "");
 
-      if (!prompt) {
-        await client.replyMessage({
-          replyToken: event.replyToken,
-          messages: [
-            {
-              type: "text",
-              text: "質問を入力してください"
-            }
-          ]
-        });
-        continue;
-      }
+        if (!prompt) {
+          return client.replyMessage({
+            replyToken: event.replyToken,
+            messages: [
+              {
+                type: "text",
+                text: "質問を入力してください"
+              }
+            ]
+          });
+        }
 
-      try {
-        const completion = await groq.chat.completions.create({
-          model: "openai/gpt-oss-120b",
-          messages: [
-            {
-              role: "user",
-              content: prompt
-            }
-          ]
-        });
+        try {
+          const completion = await groq.chat.completions.create({
+            model: "openai/gpt-oss-120b",
+            messages: [
+              {
+                role: "user",
+                content: prompt
+              }
+            ]
+          });
 
-        const answer =
-          completion.choices?.[0]?.message?.content ||
-          "回答がありません";
+          const answer =
+            completion.choices?.[0]?.message?.content ||
+            "回答がありません";
 
-        await client.replyMessage({
-          replyToken: event.replyToken,
-          messages: [
-            {
-              type: "text",
-              text: answer.slice(0, 5000)
-            }
-          ]
-        });
+          return client.replyMessage({
+            replyToken: event.replyToken,
+            messages: [
+              {
+                type: "text",
+                text: answer.slice(0, 5000)
+              }
+            ]
+          });
 
-      } catch (error) {
-        console.error("Groq Error:", error);
+        } catch (err) {
+          console.error("Groq Error:", err);
 
-        await client.replyMessage({
-          replyToken: event.replyToken,
-          messages: [
-            {
-              type: "text",
-              text: "AI処理中にエラーが発生しました"
-            }
-          ]
-        });
-      }
-    }
+          return client.replyMessage({
+            replyToken: event.replyToken,
+            messages: [
+              {
+                type: "text",
+                text: "AI処理エラーが発生しました"
+              }
+            ]
+          });
+        }
+      })
+    );
 
     res.sendStatus(200);
-  } catch (error) {
-    console.error(error);
+
+  } catch (err) {
+    console.error(err);
     res.sendStatus(500);
   }
 });
 
 /*
-  確認用
+  ===== ヘルスチェック =====
 */
 app.get("/", (req, res) => {
   res.send("LINE + Groq Bot Running");
 });
 
 /*
-  起動
+  ===== 起動 =====
 */
 const PORT = process.env.PORT || 3000;
 
